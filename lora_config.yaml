@@ -1,0 +1,46 @@
+# LoRA Configuration
+
+lora:
+  # Shared LoRA hyperparameters (same for all experiments)
+  common:
+    r: 8                # LoRA rank
+    alpha: 16           # Scaling factor
+    dropout: 0.1        # LoRA dropout
+    bias: "none"        # Do not adapt bias terms
+
+    # Attention projections to adapt
+    target_projections:
+      - query
+      - value
+
+  # Experiment definitions
+  experiments:
+
+    - name: lora_all
+      layers:
+        mode: "all"
+
+    - name: lora_top6
+      layers:
+        mode: "top_k"
+        top_k: 6
+
+    - name: lora_bottom6
+      layers:
+        mode: "range"
+        range: [0, 5]
+
+    - name: lora_middle6
+      layers:
+        mode: "range"
+        range: [3, 8]
+
+    - name: lora_alt_odd
+      layers:
+        mode: "explicit"
+        indices: [1, 3, 5, 7, 9, 11]
+
+    - name: lora_alt_even
+      layers:
+        mode: "explicit"
+        indices: [0, 2, 4, 6, 8, 10]
