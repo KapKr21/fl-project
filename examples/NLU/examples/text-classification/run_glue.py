@@ -148,6 +148,13 @@ class ModelArguments:
     model_name_or_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
+    lora_layers: str = field(
+        default="all",
+        metadata={
+            "help": "RoBERTa encoder layers to train LoRA on. "
+                    "'all' or comma-separated list like '8,9,10,11'."
+        },
+    )
     config_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
     )
@@ -416,6 +423,36 @@ def main():
                         break
             else:
                 param.requires_grad = True
+
+    #Specifing a subset of RoBERTa layers for LoRA, freezing LoRA params outside those layers.
+    if model_args.apply_lora and model_args.lora_layers != "all":
+        import re
+
+        keep_layers = set(int(x) for x in model_args.lora_layers.split(",") if x.strip() != "")
+        layer_re = re.compile(r"roberta\.encoder\.layer\.(\d+)\.")
+
+        frozen = 0
+        kept = 0
+        for name, param in model.named_parameters():
+            if "lora_" not in name:
+                continue
+
+            m = layer_re.search(name)
+            if m is None:
+                # LoRA param not associated with a specific encoder layer, keeping it trainable
+                param.requires_grad = True
+                kept += 1
+                continue
+
+            layer_id = int(m.group(1))
+            if layer_id in keep_layers:
+                param.requires_grad = True
+                kept += 1
+            else:
+                param.requires_grad = False
+                frozen += 1
+
+        logger.info(f"[LoRA] Training LoRA only on layers {sorted(keep_layers)} | kept={kept}, frozen={frozen}")
 
     # Preprocessing the datasets
     if data_args.task_name is not None:
