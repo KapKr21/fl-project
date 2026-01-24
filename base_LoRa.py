@@ -109,11 +109,6 @@ def layer_indices(layer_cfg):
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-model = AutoModelForSequenceClassification.from_pretrained(
-    model_name,
-    num_labels=3  #Three labels for classification. 
-)
-
 
 #To Do : Layer selection is done using the lora_config.yaml file here 
 with open("lora_config.yaml", "r") as f:
@@ -218,79 +213,213 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-SEEDS = [42, 123, 999]
 
-for exp in cfg["lora"]["experiments"]:
+def main():
+    SEEDS = [42, 123, 999]
+    
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        num_labels=3  #Three labels for classification. 
+    )
 
-    run_name = exp["name"]
-    layer_cfg = exp["layers"]
+    for exp in cfg["lora"]["experiments"]:
 
-    print(f"\nRunning experiment: {run_name}")
+        run_name = exp["name"]
+        layer_cfg = exp["layers"]
 
-    accuracies = []
+        print(f"\nRunning experiment: {run_name}")
 
-    for seed in SEEDS:
-        print(f"Seed {seed}")
-        set_seed(seed)
+        accuracies = []
 
-        selected_layers = layer_indices(layer_cfg)
+        for seed in SEEDS:
+            print(f"Seed {seed}")
+            set_seed(seed)
 
-        target_modules = []
-        for layer_id in selected_layers:
-            for proj in target_projections:
-                target_modules.append(
-                    f"roberta.encoder.layer.{layer_id}.attention.self.{proj}"
-                )
+            selected_layers = layer_indices(layer_cfg)
 
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            num_labels=3
-        )
+            target_modules = []
+            for layer_id in selected_layers:
+                for proj in target_projections:
+                    target_modules.append(
+                        f"roberta.encoder.layer.{layer_id}.attention.self.{proj}"
+                    )
 
-        if USE_LORA:
-            lora_config = LoraConfig(
-                task_type=TaskType.SEQ_CLS,
-                r=r,
-                lora_alpha=alpha,
-                lora_dropout=dropout,
-                bias=bias,
-                target_modules=target_modules
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_name,
+                num_labels=3
             )
-            model = get_peft_model(model, lora_config)
 
-        training_args = TrainingArguments(
-            output_dir=f"./results/{run_name}/seed_{seed}",
-            logging_dir=f"./logs/{run_name}/seed_{seed}",
-            eval_strategy="epoch", 
-            save_strategy="epoch",
-            learning_rate=2e-5,
-            per_device_train_batch_size=8,
-            per_device_eval_batch_size=8,
-            num_train_epochs=3,
-            weight_decay=0.01,
-            logging_steps=100,
-            load_best_model_at_end=True,
-            metric_for_best_model="accuracy",
-            fp16=True,
-            report_to="none"
+            if USE_LORA:
+                lora_config = LoraConfig(
+                    task_type=TaskType.SEQ_CLS,
+                    r=r,
+                    lora_alpha=alpha,
+                    lora_dropout=dropout,
+                    bias=bias,
+                    target_modules=target_modules
+                )
+                model = get_peft_model(model, lora_config)
+
+            training_args = TrainingArguments(
+                output_dir=f"./results/{run_name}/seed_{seed}",
+                logging_dir=f"./logs/{run_name}/seed_{seed}",
+                eval_strategy="epoch", 
+                save_strategy="epoch",
+                learning_rate=2e-5,
+                per_device_train_batch_size=8,
+                per_device_eval_batch_size=8,
+                num_train_epochs=3,
+                weight_decay=0.01,
+                logging_steps=100,
+                load_best_model_at_end=True,
+                metric_for_best_model="accuracy",
+                fp16=True,
+                report_to="none"
+            )
+
+            trainer = Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=train_tokenized,
+                eval_dataset=val_matched_tokenized,
+                tokenizer=tokenizer,
+                compute_metrics=compute_metrics
+            )
+
+            trainer.train()
+
+            best_acc = trainer.state.best_metric
+            accuracies.append(best_acc)
+
+            print(f"Accuracy: {best_acc:.4f}")
+
+        print(f"\n{run_name} results: {accuracies}")
+        print(f"Mean ± Std: {np.mean(accuracies):.4f} ± {np.std(accuracies):.4f}")
+
+
+
+def train_lora_client(
+    model_name: str,
+    train_dataset,
+    eval_dataset,
+    lora_config_path: str,
+    seed: int,
+    num_epochs: int,
+    initial_lora_state=None,
+):
+    
+    def tokenize(batch):
+        tokenized = tokenizer(
+            batch["premise"],
+            batch["hypothesis"],
+            truncation=True,
+            padding="max_length",
+            max_length=128,
         )
+        tokenized["labels"] = batch["label"]
+        return tokenized
+    
 
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=train_tokenized,
-            eval_dataset=val_matched_tokenized,
-            tokenizer=tokenizer,
-            compute_metrics=compute_metrics
-        )
+    train_dataset = train_dataset.map(
+        tokenize,
+        batched=True,
+        remove_columns=train_dataset.column_names
+    )
 
-        trainer.train()
+    eval_dataset = eval_dataset.map(
+        tokenize,
+        batched=True,
+        remove_columns=eval_dataset.column_names
+    )
 
-        best_acc = trainer.state.best_metric
-        accuracies.append(best_acc)
+    train_dataset.set_format("torch")
+    eval_dataset.set_format("torch")
 
-        print(f"Accuracy: {best_acc:.4f}")
+    # Set seed
+    set_seed(seed)
 
-    print(f"\n{run_name} results: {accuracies}")
-    print(f"Mean ± Std: {np.mean(accuracies):.4f} ± {np.std(accuracies):.4f}")
+    # Load LoRA config
+    with open(lora_config_path, "r") as f:
+        cfg = yaml.safe_load(f)
 
+    lora_common = cfg["lora"]["common"]
+    r = lora_common["r"]
+    alpha = lora_common["alpha"]
+    dropout = lora_common["dropout"]
+    bias = lora_common["bias"]
+    target_projections = lora_common["target_projections"]
+
+    # Use ALL layers for Scenario 1
+    # selected_layers = list(range(NUM_LAYERS))
+    
+    # Scenario 2: middle 6 layers
+    selected_layers = list(range(3, 9))
+
+    target_modules = []
+    for layer_id in selected_layers:
+        for proj in target_projections:
+            target_modules.append(
+                f"roberta.encoder.layer.{layer_id}.attention.self.{proj}"
+            )
+
+    # Build model
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        num_labels=3
+    )
+
+    lora_config = LoraConfig(
+        task_type=TaskType.SEQ_CLS,
+        r=r,
+        lora_alpha=alpha,
+        lora_dropout=dropout,
+        bias=bias,
+        target_modules=target_modules
+    )
+
+    model = get_peft_model(model, lora_config)
+
+    # Load global LoRA state
+    if initial_lora_state is not None:
+        model.load_state_dict(initial_lora_state, strict=False)
+
+    # Training setup
+    training_args = TrainingArguments(
+        output_dir="./tmp_client",
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
+        learning_rate=2e-5,
+        num_train_epochs=num_epochs,
+        weight_decay=0.01,
+        eval_strategy="epoch",
+        save_strategy="no",
+        logging_steps=100,
+        fp16=True,
+        report_to="none"
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        tokenizer=tokenizer,
+        compute_metrics=compute_metrics
+    )
+
+    # Local training
+    trainer.train()
+
+    metrics = trainer.evaluate()
+
+    # Extract LoRA params
+    lora_state = {
+        k: v.cpu()
+        for k, v in model.state_dict().items()
+        if "lora_" in k
+    }
+
+    return lora_state, metrics
+
+if __name__ == "__main__":
+    main()
