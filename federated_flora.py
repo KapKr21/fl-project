@@ -1,8 +1,8 @@
 # federated_flora.py
   
 import csv
-from base_LoRa import train_lora_client
-from data_utils import split_mnli_non_iid
+from base_LoRa import train_lora_client,evaluate_global_lora
+from data_utils import split_sst2_non_iid
 from flora_utils import flora_aggregate
 
 
@@ -11,10 +11,10 @@ from flora_utils import flora_aggregate
 # -------------------------
 
 MODEL_NAME = "roberta-base"
-NUM_CLIENTS = 2
+NUM_CLIENTS = 4
 NUM_ROUNDS = 3
 LOCAL_EPOCHS = 3
-SEEDS = [42, 123, 999]
+SEEDS = [42, 123, 999, 2024]
 
 LORA_CONFIG_PATH = "lora_config.yaml"
 
@@ -32,7 +32,7 @@ class Client:
             train_dataset=self.train_data,
             eval_dataset=self.eval_data,
             lora_config_path=LORA_CONFIG_PATH,
-            seed=SEEDS[self.client_id],
+            seed = SEEDS[self.client_id % len(SEEDS)],
             num_epochs=LOCAL_EPOCHS,
             initial_lora_state=global_lora_state,
         )
@@ -45,7 +45,7 @@ def run_federated_flora():
     print("Starting Scenario 2: FLORA with LoRA on middle layers")
 
     # Non-IID data split
-    client_splits = split_mnli_non_iid(num_clients=NUM_CLIENTS)
+    client_splits = split_sst2_non_iid(num_clients=NUM_CLIENTS)
 
     results = []  
 
@@ -73,7 +73,8 @@ def run_federated_flora():
             results.append({
                 "round": round_id,
                 "client_id": client.client_id,
-                "eval_accuracy": metrics["eval_accuracy"]
+                "eval_accuracy": metrics["eval_accuracy"],
+                "global_acc": None
             })
 
             # Check if LoRA params exist
@@ -84,19 +85,31 @@ def run_federated_flora():
             
         # Aggregation
         global_lora_state = flora_aggregate(client_lora_states)
+        
+        global_metrics = evaluate_global_lora(
+            model_name=MODEL_NAME,
+            eval_dataset=client_splits[0]["eval"], 
+            lora_config_path=LORA_CONFIG_PATH,
+            global_lora_state=global_lora_state,
+        )
+        
         round_accs = [
             r["eval_accuracy"]
             for r in results
-            if r["round"] == round_id and r["client_id"] != "mean"
+            if r["round"] == round_id and isinstance(r["client_id"], int)
         ]
+
 
         mean_acc = sum(round_accs) / len(round_accs)
 
         results.append({
             "round": round_id,
             "client_id": "mean",
-            "eval_accuracy": mean_acc
+            "eval_accuracy": mean_acc,
+            "global_acc": global_metrics["eval_accuracy"]
         })
+
+
         
         print(f"Round {round_id} mean accuracy: {mean_acc:.4f}")
     
@@ -104,7 +117,7 @@ def run_federated_flora():
     with open("scenario2_results.csv", "w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["round", "client_id", "eval_accuracy"]
+            fieldnames=["round", "client_id", "eval_accuracy","global_acc"]
         )
         writer.writeheader()
         writer.writerows(results)

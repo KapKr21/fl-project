@@ -1,52 +1,47 @@
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from collections import defaultdict
 import random
-from datasets import Dataset
 
-def split_mnli_non_iid(num_clients=2, seed=42):
-    assert num_clients == 2
-
+def split_sst2_non_iid(num_clients=4, seed=42, dominant_frac=0.7):
     random.seed(seed)
 
-    dataset = load_dataset("glue", "mnli")
+    dataset = load_dataset("glue", "sst2")
     train_ds = dataset["train"]
-    eval_ds = dataset["validation_matched"]
+    eval_ds = dataset["validation"]
 
-    # Group by label
-    buckets = defaultdict(list)
+    # Group examples by label
+    label_buckets = defaultdict(list)
     for ex in train_ds:
-        buckets[ex["label"]].append(ex)
+        label_buckets[ex["label"]].append(ex)
 
-    for k in buckets:
-        random.shuffle(buckets[k])
+    # Shuffle each label bucket
+    for label in label_buckets:
+        random.shuffle(label_buckets[label])
 
-    client_0 = []
-    client_1 = []
+    clients = [[] for _ in range(num_clients)]
 
-    # Entailment - More entailment data for client 0 
-    split = int(0.8 * len(buckets[0]))
-    client_0.extend(buckets[0][:split])
-    client_1.extend(buckets[0][split:])
+    labels = list(label_buckets.keys())  # [0, 1]
+    num_labels = len(labels)
 
-    # Neutral - about the  same for both
-    split = int(0.5 * len(buckets[1]))
-    client_0.extend(buckets[1][:split])
-    client_1.extend(buckets[1][split:])
+    # Assign dominant label per client (round-robin)
+    for client_id in range(num_clients):
+        dominant_label = labels[client_id % num_labels]
 
-    # Contradiction - More entailment data for client 1
-    split = int(0.2 * len(buckets[2]))
-    client_0.extend(buckets[2][:split])
-    client_1.extend(buckets[2][split:])
+        for label in labels:
+            bucket = label_buckets[label]
 
+            if label == dominant_label:
+                take = int(dominant_frac * len(bucket) / num_clients)
+            else:
+                take = int((1 - dominant_frac) * len(bucket) / ((num_labels - 1) * num_clients))
+
+            clients[client_id].extend(bucket[:take])
+            del bucket[:take]
 
     return [
         {
-            "train": Dataset.from_list(client_0),
-            "eval": Dataset.from_list(eval_ds) if isinstance(eval_ds, list) else eval_ds,
-        },
-        {
-            "train": Dataset.from_list(client_1),
-            "eval": Dataset.from_list(eval_ds) if isinstance(eval_ds, list) else eval_ds,
-        },
+            "train": Dataset.from_list(client_data),
+            "eval": eval_ds,
+        }
+        for client_data in clients
     ]
-

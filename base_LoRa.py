@@ -2,6 +2,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType
 import yaml
 from datasets import load_dataset
+from datasets import Dataset
 from transformers import AutoTokenizer, TrainingArguments, Trainer
 import numpy as np
 import evaluate
@@ -18,18 +19,12 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 USE_LORA = True 
 
 def data_processing():
-    mnli = load_dataset("glue", "mnli")
-    # print(mnli["train"][0])
+    sst2 = load_dataset("glue", "sst2")
 
-    train_ds = mnli["train"]
-    val_matched_ds = mnli["validation_matched"]
-    val_mismatched_ds = mnli["validation_mismatched"]
+    train_ds = sst2["train"]
+    val_ds = sst2["validation"]
 
-    # print("Train size:", len(train_ds))
-    # print("Validation (matched):", len(val_matched_ds))
-    # print("Validation (mismatched):", len(val_mismatched_ds))
-
-    return train_ds, val_matched_ds, val_mismatched_ds
+    return train_ds, val_ds
 
 def set_seed(seed):
     random.seed(seed)
@@ -37,12 +32,11 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-def apply_tokenizer(train_ds, val_matched_ds, val_mismatched_ds, tokenizer):
+def apply_tokenizer(train_ds, val_ds, tokenizer):
 
     def tokenize_and_keep_labels(batch):
         tokenized = tokenizer(
-            batch["premise"],
-            batch["hypothesis"],
+            batch["sentence"],
             truncation=True,
             padding="max_length",
             max_length=128
@@ -56,30 +50,24 @@ def apply_tokenizer(train_ds, val_matched_ds, val_mismatched_ds, tokenizer):
         remove_columns=train_ds.column_names
     )
 
-    val_matched_tokenized = val_matched_ds.map(
+    val_tokenized = val_ds.map(
         tokenize_and_keep_labels,
         batched=True,
-        remove_columns=val_matched_ds.column_names
-    )
-
-    val_mismatched_tokenized = val_mismatched_ds.map(
-        tokenize_and_keep_labels,
-        batched=True,
-        remove_columns=val_mismatched_ds.column_names
+        remove_columns=val_ds.column_names
     )
 
     train_tokenized.set_format("torch")
-    val_matched_tokenized.set_format("torch")
-    val_mismatched_tokenized.set_format("torch")
+    val_tokenized.set_format("torch")
 
-    return train_tokenized, val_matched_tokenized, val_mismatched_tokenized
+    return train_tokenized, val_tokenized
 
 
 #Declaring training and evaluation data
-train_ds, val_matched_ds, val_mismatched_ds = data_processing()
+train_ds, val_ds = data_processing()
 
 #Applying tokenizer to the training and evaluation data
-train_tokenized,val_matched_tokenized,val_mismatched_tokenized = apply_tokenizer(train_ds, val_matched_ds, val_mismatched_ds,tokenizer)
+train_tokenized, val_tokenized = apply_tokenizer(train_ds, val_ds, tokenizer)
+
 
 # print(train_tokenized[0])
 
@@ -199,7 +187,7 @@ def compute_metrics(eval_pred):
 #     args=training_args,
 
 #     train_dataset=train_tokenized,
-#     eval_dataset=val_matched_tokenized,
+#     eval_dataset=val_tokenized,
 
 #     tokenizer=tokenizer,
 #     compute_metrics=compute_metrics
@@ -219,7 +207,7 @@ def main():
     
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
-        num_labels=3  #Three labels for classification. 
+        num_labels=2  
     )
 
     for exp in cfg["lora"]["experiments"]:
@@ -246,7 +234,7 @@ def main():
 
             model = AutoModelForSequenceClassification.from_pretrained(
                 model_name,
-                num_labels=3
+                num_labels=2
             )
 
             if USE_LORA:
@@ -281,7 +269,7 @@ def main():
                 model=model,
                 args=training_args,
                 train_dataset=train_tokenized,
-                eval_dataset=val_matched_tokenized,
+                eval_dataset=val_tokenized,
                 tokenizer=tokenizer,
                 compute_metrics=compute_metrics
             )
@@ -310,8 +298,7 @@ def train_lora_client(
     
     def tokenize(batch):
         tokenized = tokenizer(
-            batch["premise"],
-            batch["hypothesis"],
+            batch["sentence"],
             truncation=True,
             padding="max_length",
             max_length=128,
@@ -365,7 +352,7 @@ def train_lora_client(
     # Build model
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
-        num_labels=3
+        num_labels=2
     )
 
     lora_config = LoraConfig(
@@ -420,6 +407,99 @@ def train_lora_client(
     }
 
     return lora_state, metrics
+
+def evaluate_global_lora(
+    model_name: str,
+    eval_dataset,
+    lora_config_path: str,
+    global_lora_state,
+):
+    """
+    Evaluate the aggregated global LoRA model on a validation set.
+    """
+
+    # Convert list -> Dataset if needed
+    if isinstance(eval_dataset, list):
+        eval_dataset = Dataset.from_list(eval_dataset)
+
+    # Tokenization (same as client)
+    def tokenize(batch):
+        tokenized = tokenizer(
+            batch["sentence"],
+            truncation=True,
+            padding="max_length",
+            max_length=128,
+        )
+        tokenized["labels"] = batch["label"]
+        return tokenized
+
+    eval_dataset = eval_dataset.map(
+        tokenize,
+        batched=True,
+        remove_columns=eval_dataset.column_names
+    )
+    eval_dataset.set_format("torch")
+
+    # Load LoRA config
+    with open(lora_config_path, "r") as f:
+        cfg = yaml.safe_load(f)
+
+    lora_common = cfg["lora"]["common"]
+    r = lora_common["r"]
+    alpha = lora_common["alpha"]
+    dropout = lora_common["dropout"]
+    bias = lora_common["bias"]
+    target_projections = lora_common["target_projections"]
+
+  
+    selected_layers = list(range(3, 9))   
+
+    target_modules = []
+    for layer_id in selected_layers:
+        for proj in target_projections:
+            target_modules.append(
+                f"roberta.encoder.layer.{layer_id}.attention.self.{proj}"
+            )
+
+    # Build model
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        num_labels=2
+    )
+
+    lora_config = LoraConfig(
+        task_type=TaskType.SEQ_CLS,
+        r=r,
+        lora_alpha=alpha,
+        lora_dropout=dropout,
+        bias=bias,
+        target_modules=target_modules
+    )
+
+    model = get_peft_model(model, lora_config)
+
+    # Load aggregated LoRA
+    model.load_state_dict(global_lora_state, strict=False)
+
+    # Evaluation only
+    training_args = TrainingArguments(
+        output_dir="./tmp_global_eval",
+        per_device_eval_batch_size=8,
+        fp16=True,
+        report_to="none"
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        eval_dataset=eval_dataset,
+        tokenizer=tokenizer,
+        compute_metrics=compute_metrics
+    )
+
+    metrics = trainer.evaluate()
+    return metrics
+
 
 if __name__ == "__main__":
     main()
