@@ -3,7 +3,7 @@
 lora:
   # Shared LoRA hyperparameters (same for all experiments)
   common:
-    r: 8                # LoRA rank
+    r: 16               # LoRA rank
     alpha: 16           # Scaling factor
     dropout: 0.1        # LoRA dropout
     bias: "none"        # Do not adapt bias terms

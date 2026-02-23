@@ -2,12 +2,24 @@ from datasets import load_dataset, Dataset
 from collections import defaultdict
 import random
 
-def split_sst2_non_iid(num_clients=4, seed=42, dominant_frac=0.7):
+
+def split_glue_non_iid(
+    task_name,
+    num_clients=4,
+    seed=42,
+    dominant_frac=0.6,
+):
     random.seed(seed)
 
-    dataset = load_dataset("glue", "sst2")
-    train_ds = dataset["train"]
-    eval_ds = dataset["validation"]
+    dataset = load_dataset("glue", task_name)
+
+    train_ds = dataset["train"].shuffle(seed=seed)
+
+    # Handle different validation split names
+    if task_name == "mnli":
+        eval_ds = dataset["validation_matched"]
+    else:
+        eval_ds = dataset["validation"]
 
     # Group examples by label
     label_buckets = defaultdict(list)
@@ -19,11 +31,10 @@ def split_sst2_non_iid(num_clients=4, seed=42, dominant_frac=0.7):
         random.shuffle(label_buckets[label])
 
     clients = [[] for _ in range(num_clients)]
-
-    labels = list(label_buckets.keys())  # [0, 1]
+    labels = list(label_buckets.keys())
     num_labels = len(labels)
 
-    # Assign dominant label per client (round-robin)
+    # Assign dominant label per client
     for client_id in range(num_clients):
         dominant_label = labels[client_id % num_labels]
 
@@ -33,7 +44,11 @@ def split_sst2_non_iid(num_clients=4, seed=42, dominant_frac=0.7):
             if label == dominant_label:
                 take = int(dominant_frac * len(bucket) / num_clients)
             else:
-                take = int((1 - dominant_frac) * len(bucket) / ((num_labels - 1) * num_clients))
+                take = int(
+                    (1 - dominant_frac)
+                    * len(bucket)
+                    / ((num_labels - 1) * num_clients)
+                )
 
             clients[client_id].extend(bucket[:take])
             del bucket[:take]
