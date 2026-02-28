@@ -85,6 +85,87 @@ Purpose:
 Simulate heterogeneous client capabilities and overlapping layer participation.
 
 ---
+---
+
+## Results
+
+This repository includes both **centralised** and **federated** experiment results.
+
+### Centralised Training
+
+Results from standard LoRA fine-tuning (no federation) are stored in:
+
+- `lora_centralised_results.xlsx`
+
+This serves as the upper-bound reference for comparison against federated settings.
+
+---
+
+### Federated Scenarios
+
+All federated results are stored as `.xlsx` files for structured analysis.
+
+#### Scenario 1 – 4 Clients, All LoRA Layers
+
+Files:
+- `Scenario1_Four_Clients_MNLI.xlsx`
+- `Scenario1_Four_Clients_SST2.xlsx`
+
+Description:
+- 4 clients
+- Each client trains all LoRA layers
+- Non-IID data split
+- Standard FedAvg-style aggregation
+
+Purpose:
+Baseline federated LoRA setup.
+
+---
+
+#### Scenario 2 – 4 Clients, Middle Layers Only
+
+Files:
+- `Scenario2_Four_Clients_MNLI.xlsx`
+- `Scenario2_Four_Clients_SST2.xlsx`
+
+Description:
+- 4 clients
+- Each client trains only the middle transformer layers
+- Reduced communication cost
+- Partial parameter participation
+
+Purpose:
+Evaluate selective LoRA training under federated settings.
+
+---
+
+#### Scenario 3 – 2 Clients, Heterogeneous Layer Training
+
+File:
+- `Scenario4_Two_Clients_SST2.xlsx`
+
+Description:
+- 2 clients
+- Client 1 trains middle 6 layers
+- Client 2 trains middle 4 layers
+- Overlapping but non-identical layer participation
+
+Purpose:
+Simulate heterogeneous client capabilities and study aggregation behaviour under structural mismatch.
+
+---
+
+### Comparison Focus
+
+Experiments are designed to compare:
+
+- Centralised vs Federated performance
+- Full-layer vs Selective-layer training
+- Homogeneous vs Heterogeneous client participation
+- Impact of partial LoRA aggregation on stability and convergence
+
+---
+
 
 ## Technical Details
 ### Aggregation Noise
