@@ -3,7 +3,7 @@
 This repository implements the FedIT framework, exploring the intersection of Low-Rank Adaptation (LoRA) and Federated Learning (FL) using RoBERTa-base. The project specifically investigates "aggregation noise" and mathematical inconsistencies in standard Federated Averaging (FedAvg) when applied to non-linear low-rank subspaces.
 Key Features;
    1. Centralized Baseline: High-fidelity replication of original LoRA [1] results.
-   2. 2. Layer-wise Ablation: Tools to identify optimal Transformer layer subsets (e.g., Middle 6) for adaptation.
+   2. Layer-wise Ablation: Tools to identify optimal Transformer layer subsets (e.g., Middle 6) for adaptation.
    3. FedIT Framework: Decentralized fine-tuning using standard FedAvg.
    4. Overlap-Aware Aggregation: Support for Architectural Heterogeneity, allowing clients to participate with disparate layer configurations.
    5.  Non-IID Simulation: Data heterogeneity support for GLUE tasks (MNLI, SST-2).The project is designed to explore how different LoRA layer selection strategies affect federated learning performance on GLUE tasks.
@@ -166,7 +166,6 @@ Experiments are designed to compare:
 
 ---
 
-
 ## Technical Details
 ### Aggregation Noise
 Our experiments empirically prove that element-wise averaging of A and B matrices independently is mathematically inconsistent. This project serves as a testbed for observing the "structural collapse" of adapters in decentralized settings.
@@ -197,3 +196,9 @@ Notes:
 2. Designed for experimental research purposes.
 3. Aggregation assumes consistent LoRA parameter naming.
 4. Results are stored in CSV format for further analysis.
+
+## Acknowledgments
+
+### AI Collaboration:
+
+This project utilized AI tools (including Google Gemini) for brainstorming architectural designs, debugging complex aggregation logic, and clarifying theoretical concepts related to Federated Learning and Low-Rank Adaptation.
