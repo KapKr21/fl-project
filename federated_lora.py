@@ -42,7 +42,7 @@ def run_federated_flora():
     # Non-IID data split
     if SCENARIO == 1:
         client_splits = split_glue_non_iid(task_name='mnli',num_clients=NUM_CLIENTS,dominant_frac=0.7)
-    elif SCENARIO == 4:
+    elif SCENARIO == 3:
         client_splits = split_glue_non_iid(task_name='sst2',num_clients=NUM_CLIENTS,dominant_frac=0.7)
     
     results = []  
@@ -60,7 +60,7 @@ def run_federated_flora():
     global_lora_state = None
     if SCENARIO == 1:
         selected_layers = list(range(12))
-    elif SCENARIO == 4:
+    elif SCENARIO == 3:
         CLIENT_LAYER_MAP = {
             0: [3, 4, 5, 6, 7, 8],
             1: [4, 5, 6, 7]
@@ -76,7 +76,7 @@ def run_federated_flora():
                 lora_state, metrics = client.local_train(global_lora_state, selected_layers)
                 client_lora_states.append(lora_state)
 
-            elif SCENARIO == 4:
+            elif SCENARIO == 3:
                 selected_layers = CLIENT_LAYER_MAP[client.client_id]
                 lora_state, metrics, trained_layers = client.local_train(
                     global_lora_state,
@@ -99,13 +99,12 @@ def run_federated_flora():
             # Check if LoRA params exist
             print(f"Client {client.client_id} LoRA params: {len(lora_state)}")
 
-            client_lora_states.append(lora_state)
         client_sizes = [len(client.train_data) for client in clients]
         # Aggregation
         if SCENARIO == 1:
             global_lora_state = flora_aggregate(client_lora_states)
 
-        elif SCENARIO == 4:
+        elif SCENARIO == 3:
             global_lora_state = overlap_aware_aggregate(client_updates)
 
         print("Num global params:", len(global_lora_state))
