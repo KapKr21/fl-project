@@ -197,6 +197,8 @@ Notes:
 3. Aggregation assumes consistent LoRA parameter naming.
 4. Results are stored in CSV format for further analysis.
 
+---
+
 ## Acknowledgments
 
 ### AI Collaboration:
