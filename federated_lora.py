@@ -135,7 +135,7 @@ def run_federated_flora():
         
         print(f"Round {round_id} mean accuracy: {mean_acc:.4f}")
     
-    with open("scenario1_vanilla_avg_10_rounds_r16_2e_5_results.csv", "w", newline="") as f:
+    with open("scenario1.csv", "w", newline="") as f:
         writer = csv.DictWriter(
             f,
             fieldnames=["round", "client_id", "eval_accuracy","global_acc"]
