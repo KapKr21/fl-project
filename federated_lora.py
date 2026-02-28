@@ -70,10 +70,11 @@ def run_federated_flora():
         print(f"\n===== Communication Round {round_id} =====")
         client_lora_states = []
         client_updates = []
+        trained_layers = []
         for client in clients:
             print(f"\nClient {client.client_id} local training...")
             if SCENARIO == 1:
-                lora_state, metrics = client.local_train(global_lora_state, selected_layers)
+                lora_state, metrics, selected_layers = client.local_train(global_lora_state, selected_layers)
                 client_lora_states.append(lora_state)
 
             elif SCENARIO == 3:
